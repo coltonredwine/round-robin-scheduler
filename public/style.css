@@ -1,0 +1,353 @@
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+  color: #111;
+  background: #f7f7f8;
+}
+
+.container {
+  max-width: 1100px;
+  margin: 24px auto;
+  padding: 0 16px;
+  min-height: calc(100vh - 48px);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.container.withPreview {
+  justify-content: flex-start;
+}
+
+.card {
+  background: #f2f4f7;
+  padding: 14px 16px;
+  border-radius: 14px;
+  border: 1px solid #d9dfe7;
+  box-shadow: inset 0 1px 0 #ffffff, 0 1px 3px rgba(0,0,0,0.05);
+  margin-bottom: 16px;
+}
+
+.settingsCard {
+  width: clamp(600px, 35vw, 900px);
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.reportCard {
+  width: clamp(600px, 35vw, 900px);
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.hiddenCard {
+  display: none;
+}
+
+.settingsTitle {
+  margin: 0 0 8px 0;
+  text-align: center;
+}
+
+form label {
+  display: block;
+  margin: 4px 0;
+}
+
+#settingsForm {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  width: 100%;
+  gap: 8px;
+}
+
+.card h2 {
+  font-size: 18px;
+  margin: 0 0 6px 0;
+}
+
+.stackedInput {
+  font-size: 15px;
+}
+
+input[type="number"],
+input[type="time"],
+select {
+  font-size: 18px;
+}
+
+.formRow {
+  display: flex;
+  gap: 14px;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  width: 100%;
+}
+
+.stackedInput {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  flex: 0 1 280px;
+}
+
+.fullWidthInput {
+  width: 100%;
+  flex: 1 1 100%;
+  align-items: stretch;
+}
+
+.fullWidthInput input[type="number"] {
+  width: 100%;
+}
+
+.compactRow {
+  margin-top: 2px;
+  overflow: hidden;
+  max-height: 0;
+  opacity: 0;
+  transform: scaleY(0.92);
+  transform-origin: top;
+  transition:
+    max-height 450ms cubic-bezier(0.18, 0.9, 0.32, 1.25),
+    opacity 280ms ease,
+    transform 450ms cubic-bezier(0.18, 0.9, 0.32, 1.25);
+}
+
+.compactRow.expanded {
+  max-height: 140px;
+  opacity: 1;
+  transform: scaleY(1);
+}
+
+#startTimeRow {
+  align-items: center;
+  text-align: center;
+}
+
+label.row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  justify-content: center;
+}
+
+.refField {
+  margin-left: 0;
+}
+
+input[type="number"] {
+  width: 100%;
+  border: none;
+  border-bottom: 1px solid #b7c1cd;
+  background: transparent;
+  padding: 4px 2px;
+  outline: none;
+}
+
+input[type="number"]:focus,
+input[type="time"]:focus {
+  border-bottom-color: #3b82c4;
+}
+
+input[type="time"] {
+  border: none;
+  border-bottom: 1px solid #b7c1cd;
+  background: transparent;
+  padding: 4px 2px;
+  outline: none;
+}
+
+button {
+  margin-top: 8px;
+  padding: 8px 14px;
+  border-radius: 8px;
+  border: 1px solid #ccc;
+  background: #fff;
+  cursor: pointer;
+}
+
+button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  background: #f1f1f1;
+  color: #8a8a8a;
+  border-color: #d7d7d7;
+}
+
+.error {
+  margin-top: 12px;
+  color: #b00020;
+  white-space: pre-wrap;
+}
+
+.roundBlock {
+  border-top: 1px solid #eee;
+  padding-top: 12px;
+  margin-top: 12px;
+}
+
+.roundTitle {
+  font-weight: 700;
+  margin-bottom: 8px;
+}
+
+.grid2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+th, td {
+  border-bottom: 1px solid #c3ccd7;
+  padding: 6px 4px;
+  text-align: left;
+  font-size: 14px;
+}
+
+th {
+  font-weight: 700;
+}
+
+.reportTable th,
+.reportTable td {
+  text-align: center;
+}
+
+.courtLine {
+  font-size: 14px;
+  margin: 2px 0;
+}
+
+.muted {
+  color: #666;
+}
+
+.actions {
+  margin-top: 10px;
+}
+
+.actionsRow {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  justify-content: center;
+}
+
+.toggleRow {
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: #eceff4;
+  border: 1px solid #d4dbe5;
+  border-radius: 12px;
+  padding: 8px 10px;
+}
+
+.toggleRow > span:first-child {
+  color: #7a8696;
+  transition: color 150ms ease;
+}
+
+.toggleRow:has(.toggleInput:checked) > span:first-child {
+  color: #1f2937;
+}
+
+.toggleRow:has(.toggleInput:checked) {
+  border-color: #8ebeea;
+  box-shadow: 0 0 0 3px rgba(59, 130, 196, 0.18);
+}
+
+.toggleInput {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.toggleTrack {
+  position: relative;
+  width: 72px;
+  height: 32px;
+  border-radius: 999px;
+  background: #c8d0db;
+  border: 1px solid #bcc6d2;
+  transition: background 150ms ease;
+  flex-shrink: 0;
+}
+
+.toggleTrack::before,
+.toggleTrack::after {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 11px;
+  color: #ffffff;
+  letter-spacing: 0.02em;
+  text-transform: lowercase;
+}
+
+.toggleTrack::before {
+  content: "off";
+  left: 42px;
+}
+
+.toggleThumb {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: #ffffff;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.2);
+  transition: transform 150ms ease;
+}
+
+.toggleInput:checked + .toggleTrack {
+  background: #a9d2ff;
+  border-color: #8ebeea;
+}
+
+.toggleInput:checked + .toggleTrack::before {
+  content: "on";
+  left: 10px;
+}
+
+.toggleInput:checked + .toggleTrack .toggleThumb {
+  transform: translateX(40px);
+}
+
+@media (max-width: 900px) {
+  .settingsCard,
+  .reportCard {
+    width: 100%;
+    margin-left: 0;
+    margin-right: 0;
+  }
+}
+
+.courtColEven {
+  background: #f8fbff;
+}
+
+.courtColOdd {
+  background: #eef4fb;
+}
+
+.refCol {
+  background: #dfe3e8;
+}
+
+.byeCol {
+  color: #1f5fa8;
+  font-weight: 600;
+}
+

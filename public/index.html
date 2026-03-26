@@ -1,0 +1,98 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Round Robin Scheduler</title>
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <div class="container">
+      <h1 class="settingsTitle">Round Robin Schedule Generator</h1>
+      <div class="card settingsCard">
+        <h2>Settings</h2>
+        <form id="settingsForm">
+          <div class="formRow">
+            <label class="stackedInput">
+              Number of teams
+              <input type="number" name="teams" min="2" step="1" value="" />
+            </label>
+            <label class="stackedInput">
+              Number of courts
+              <input type="number" name="courts" min="1" step="1" value="" />
+            </label>
+          </div>
+
+          <label class="stackedInput fullWidthInput">
+            Matches per team
+            <input type="number" name="gamesPerTeam" min="1" step="1" value="" />
+          </label>
+
+          <label class="toggleRow">
+            <span>Peer reffing</span>
+            <input type="checkbox" name="includeRef" class="toggleInput" />
+            <span class="toggleTrack" aria-hidden="true"><span class="toggleThumb"></span></span>
+          </label>
+
+          <label class="refField">
+            <span id="refFieldLabelWrap">Teams ref <span id="refFieldX">1</span> court per round</span>
+            <select name="refSlotsPreset" id="refSlotsPreset">
+              <option value="1" selected>1</option>
+              <option value="2">2</option>
+              <option value="all">All</option>
+            </select>
+          </label>
+
+          <input type="hidden" name="refSlotsPerRound" value="3" />
+          <input type="hidden" name="refLabelMode" value="paired" />
+
+          <label class="toggleRow">
+            <span>Include round times</span>
+            <input type="checkbox" name="includeRoundTime" id="includeRoundTime" class="toggleInput" />
+            <span class="toggleTrack" aria-hidden="true"><span class="toggleThumb"></span></span>
+          </label>
+
+          <div id="roundTimesBlock" class="formRow compactRow">
+            <label id="startTimeRow" class="stackedInput">
+              Start time
+              <input type="time" name="startTime" value="09:00" />
+            </label>
+            <label id="roundLengthRow" class="stackedInput">
+              Round length (minutes)
+              <input type="number" name="roundLengthMinutes" min="1" step="1" value="8" />
+            </label>
+          </div>
+
+          <label class="toggleRow">
+            <span>Ensure each team has at least one Bye</span>
+            <input type="checkbox" name="ensureEachTeamHasBye" class="toggleInput" />
+            <span class="toggleTrack" aria-hidden="true"><span class="toggleThumb"></span></span>
+          </label>
+
+          <div class="actionsRow">
+            <button type="submit" id="generateBtn">Generate</button>
+            <button id="resetBtn" type="button">Clear</button>
+            <button id="downloadBtnTop" type="button" disabled>Download CSV</button>
+          </div>
+        </form>
+        <div id="error" class="error" aria-live="polite"></div>
+      </div>
+
+      <div class="card reportCard hiddenCard" id="reportCard">
+        <h2>Report</h2>
+        <div id="summary"></div>
+      </div>
+
+      <div class="card hiddenCard" id="scheduleCard">
+        <h2>Schedule</h2>
+        <div id="rounds"></div>
+        <div class="actions">
+          <button id="downloadBtn" type="button" disabled>Download CSV</button>
+        </div>
+      </div>
+    </div>
+
+    <script src="app.js"></script>
+  </body>
+</html>
+
