@@ -17,11 +17,10 @@ Then open:
 
 ## Settings
 
-- `Teams`: must be an even number.
-- `Courts`: number of parallel courts (games).
-- `Include ref slots`: toggles ref assignment.
-- `Ref slots per round`: how many teams per round get assigned as refs (these come from the teams that are not playing).
-  - Must be `<= floor(courts / 2)` for the court-pair ref labels.
+- `Teams`: Must be greater than the number of 'Matches per team'.
+- `Courts`: number of parallel courts (simaltaneous possible games).
+- `Peer reffing`: toggles peer ref assignment.
+- `Ref slots per round`: how many courts per round get assigned to teams to ref (these come from the teams that are not playing).
 - `Round length (minutes)`: duration of each slot.
 - `Start time`: time the first round starts.
 - `Ensure each team has at least one Bye`: if enabled, the generator will automatically increase the number of rounds (up to what’s feasible) so every team has at least one bye.
