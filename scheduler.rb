@@ -31,6 +31,17 @@ class DodgeballScheduler
   end
 
   def self.generate(params)
+    seed =
+      if params.key?("seed") && !params["seed"].nil? && params["seed"] != ""
+        begin
+          Integer(params["seed"])
+        rescue ArgumentError, TypeError
+          raise ScheduleError, "Seed must be an integer."
+        end
+      else
+        Random.new_seed
+      end
+
     teams = parse_int_param(params, "teams", min: 2, error_label: "Teams")
     courts = parse_int_param(params, "courts", min: 1, error_label: "Courts")
 
@@ -50,6 +61,9 @@ class DodgeballScheduler
       end
     start_time = include_round_time ? (params["startTime"] || "10:00") : "10:00" # "HH:MM"
     ensure_each_team_has_bye = !!params.fetch("ensureEachTeamHasBye")
+    include_halfway_intermission = !!params.fetch("includeHalfwayIntermission", false)
+    distribute_home_away = !!params.fetch("distributeHomeAway", false)
+    segment_courts_enabled = !!params.fetch("segmentCourts", false)
 
     raise ScheduleError, "Teams must be at least 2 (odd or even team counts are supported)." if teams < 2
 
@@ -102,6 +116,11 @@ class DodgeballScheduler
     raise ScheduleError, "Too many ref slots for the given team/court counts." if game_cap < 1 && include_ref
     raise ScheduleError, "Not enough capacity to schedule any games." if game_cap < 1
 
+    segment_sizes = nil
+    if segment_courts_enabled
+      segment_sizes = parse_court_segment_sizes(params, courts: courts)
+    end
+
     # Determine number of rounds needed (minimum) and generate the core matchups.
     # We always try to pack rounds as tightly as possible (avoid “mostly empty court” rounds),
     # subject to required byes/refs constraints.
@@ -123,10 +142,15 @@ class DodgeballScheduler
         # Each off event is either a ref or a bye. Total bye events across the tournament:
         # byeEvents = r*(teams - refSlotsPerRound) - teams*gamesPerTeam
         # Need byeEvents >= teams so every team can have at least one bye.
-        r_needed = ((teams * (games_per_team + 1)).to_f / denom).ceil.to_i
+        r_needed =
+          if include_halfway_intermission
+            games_per_team
+          else
+            ((teams * (games_per_team + 1)).to_f / denom).ceil.to_i
+          end
       else
         # With no refs, byeEvents = teams*(r - games_per_team) and we just need r - games_per_team >= 1
-        r_needed = games_per_team + 1
+        r_needed = include_halfway_intermission ? games_per_team : (games_per_team + 1)
       end
     else
       r_needed = nil
@@ -148,7 +172,13 @@ class DodgeballScheduler
     rmax = rounds_min + teams + 10
     (rounds_min..rmax).each do |r|
       begin
-        schedule_core = pack_edges_into_rounds(edges: edges, teams: teams, rounds: r, cap: game_cap)
+        schedule_core = pack_edges_into_rounds(
+          edges: edges,
+          teams: teams,
+          rounds: r,
+          cap: game_cap,
+          seed_base: seed + 20_000
+        )
         rounds_total = r
         break
       rescue ScheduleError
@@ -173,12 +203,30 @@ class DodgeballScheduler
         rounds: rounds,
         teams: teams,
         games_per_team: games_per_team,
-        attempts: 150
+        attempts: 150,
+        seed_base: seed + 30_000
       )
       if reorder_warning
         warnings << reorder_warning
       end
       rounds = reordered
+    end
+
+    if segment_sizes
+      cross_count = assign_courts_for_segments!(
+        rounds: rounds,
+        teams: teams,
+        courts: courts,
+        segment_sizes: segment_sizes,
+        seed: seed + 60_000
+      )
+      # Keep this count for diagnostics; break rounds are inserted later when needed.
+      _cross_count = cross_count
+    end
+
+    team_home_counts = nil
+    if distribute_home_away
+      team_home_counts = optimize_home_away_orientation(rounds: rounds, teams: teams, seed: seed + 50_000)
     end
 
     # Determine off teams per round and assign refs/byes.
@@ -225,10 +273,10 @@ class DodgeballScheduler
     # We'll do multiple attempts to balance refs evenly.
     attempts = 500
     best = nil
-    srand(1234)
+    srand(seed + 40_000)
 
     attempts.times do |att|
-      srand(1234 + att)
+      srand(seed + 40_000 + att)
       ref_count = Array.new(teams, 0)
       bye_count = Array.new(teams, 0)
 
@@ -252,8 +300,11 @@ class DodgeballScheduler
         end
 
         if include_ref
-          # Cap refs by eligible off teams only — not by active_games (peer refs cover court pairs even when some courts are idle).
-          ref_slots_this_round = [ref_slots_per_round, off_teams.length].min
+          eligible_slot_indices = eligible_ref_slot_indices_for_round(
+            round_games: rounds[ri],
+            ref_slot_labels: ref_slot_labels
+          )
+          ref_slots_this_round = [ref_slots_per_round, off_teams.length, eligible_slot_indices.length].min
 
           # Choose the ref teams: lowest current ref_count first, random tie-break.
           off_teams.sort_by! { |t| [ref_count[t], rand] }
@@ -276,7 +327,8 @@ class DodgeballScheduler
       next unless ok
 
       if ensure_each_team_has_bye
-        next unless (0...teams).all? { |t| bye_count[t] >= 1 }
+        extra_bye_credit = include_halfway_intermission ? 1 : 0
+        next unless (0...teams).all? { |t| (bye_count[t] + extra_bye_credit) >= 1 }
       end
 
       # Score secondary objectives:
@@ -344,18 +396,25 @@ class DodgeballScheduler
       refs = []
       if include_ref
         chosen = best[:round_ref_assignments][ri]
-        k = chosen.length
+        eligible_slot_indices = eligible_ref_slot_indices_for_round(
+          round_games: game_pairs,
+          ref_slot_labels: ref_slot_labels
+        )
+        k = [chosen.length, eligible_slot_indices.length].min
+        slot_labels_this_round = eligible_slot_indices.map { |si| ref_slot_labels.find { |r| r["slotIndex"] == si } }.compact
         permuted = permute_refs_to_slots(
-          chosen: chosen,
+          chosen: chosen.take(k),
           ri: ri,
           rounds: rounds,
-          ref_slot_labels: ref_slot_labels,
+          ref_slot_labels: slot_labels_this_round,
           ref_slots_this_round: k
         )
         permuted.each_with_index do |t, i|
-          label = ref_slot_labels[i] ? ref_slot_labels[i]["label"] : "Ref #{i + 1}"
-          ref_obj = { "slotIndex" => i, "slotLabel" => label, "team" => t }
-          ref_obj["pairCourts"] = ref_slot_labels[i]["pairCourts"] if ref_slot_labels[i] && ref_slot_labels[i]["pairCourts"]
+          slot = slot_labels_this_round[i]
+          next unless slot
+          label = slot["label"] || "Ref #{i + 1}"
+          ref_obj = { "slotIndex" => slot["slotIndex"], "slotLabel" => label, "team" => t }
+          ref_obj["pairCourts"] = slot["pairCourts"] if slot["pairCourts"]
           refs << ref_obj
         end
       end
@@ -364,13 +423,70 @@ class DodgeballScheduler
       rounds_detail << { "games" => game_pairs, "refs" => refs, "byes" => byes }
     end
 
-    # Validate schedule core constraints.
-    verify_core!(schedule_core: schedule_core, teams: teams, rounds: rounds_total, cap: game_cap, games_per_team: games_per_team)
+    universal_breaks_added = 0
+    if include_halfway_intermission
+      insert_halfway_intermission_round!(
+        rounds_detail: rounds_detail,
+        teams: teams,
+        courts: courts
+      )
+      universal_breaks_added += 1
+    end
+
+    if segment_sizes
+      segment_issues_before = count_segment_transition_violations(
+        rounds_detail: rounds_detail,
+        teams: teams,
+        segment_sizes: segment_sizes
+      )
+      needs_segment_break =
+        segment_issues_before[:play_play_switch] > 0 || segment_issues_before[:ping_pong_without_bye] > 0
+
+      if needs_segment_break && universal_breaks_added.zero?
+        added = insert_break_rounds_for_segment_conflicts!(
+          rounds_detail: rounds_detail,
+          teams: teams,
+          courts: courts,
+          segment_sizes: segment_sizes
+        )
+        if added.positive?
+          universal_breaks_added += added
+          warnings << "Additional byes added to prevent multiple court segment intersections."
+          warnings << "Break added to prevent consecutive court segment intersections."
+        end
+      end
+
+      # Enforce guardrails after at-most-one universal break insertion.
+      segment_issues_after = count_segment_transition_violations(
+        rounds_detail: rounds_detail,
+        teams: teams,
+        segment_sizes: segment_sizes
+      )
+      if segment_issues_after[:play_play_switch] > 0 || segment_issues_after[:ping_pong_without_bye] > 0
+        raise ScheduleError,
+              "Segment constraints conflict with current settings after applying allowed break logic (max one universal break). " \
+              "Remaining violations: play-to-play switches=#{segment_issues_after[:play_play_switch]}, " \
+              "switch-backs-without-bye=#{segment_issues_after[:ping_pong_without_bye]}. " \
+              "Adjust courts/segments/refs/byes."
+      end
+    end
+
+    rounds_total = rounds_detail.length
+
+    # Validate schedule core constraints on original game rounds (before inserted breaks/intermission).
+    verify_core!(schedule_core: schedule_core, teams: teams, rounds: schedule_core.length, cap: game_cap, games_per_team: games_per_team)
 
     max_consecutive_games_by_team, max_consecutive_games_overall = compute_max_consecutive_games(
-      rounds: rounds,
+      rounds: rounds_detail.map { |rd| rd["games"] },
       teams: teams
     )
+
+    team_ref_counts = Array.new(teams, 0)
+    team_bye_counts = Array.new(teams, 0)
+    rounds_detail.each do |rd|
+      (rd["refs"] || []).each { |r| team_ref_counts[r["team"]] += 1 }
+      (rd["byes"] || []).each { |t| team_bye_counts[t] += 1 }
+    end
 
     # Compute time labels for UI (not included in CSV by default).
     times = build_times(start_time: start_time, round_length_minutes: round_length_minutes, rounds_total: rounds_total)
@@ -384,17 +500,24 @@ class DodgeballScheduler
       "includeRef" => include_ref,
       "refSlotsPerRound" => ref_slots_per_round,
       "refSlotLabels" => ref_slot_labels,
+      "ensureEachTeamHasBye" => ensure_each_team_has_bye,
+      "includeHalfwayIntermission" => include_halfway_intermission,
+      "distributeHomeAway" => distribute_home_away,
+      "teamHomeCounts" => team_home_counts,
+      "segmentCourts" => segment_courts_enabled,
+      "courtSegmentSizes" => segment_sizes,
       "roundLengthMinutes" => round_length_minutes,
       "startTime" => start_time,
       "includeRoundTime" => include_round_time,
       "rounds" => rounds_detail,
       "teamGameCounts" => Array.new(teams, games_per_team),
-      "teamRefCounts" => best[:ref_count],
-      "teamByeCounts" => best[:bye_count],
+      "teamRefCounts" => team_ref_counts,
+      "teamByeCounts" => team_bye_counts,
       "maxConsecutiveGamesByTeam" => max_consecutive_games_by_team,
       "maxConsecutiveGamesOverall" => max_consecutive_games_overall,
       "roundTimes" => times,
       "warnings" => warnings,
+      "seed" => seed,
     }
   end
 
@@ -437,7 +560,7 @@ class DodgeballScheduler
   # General-purpose packer: assigns each edge to a round such that:
   # - each round has <= cap edges
   # - no team appears in more than one game in a round (matching)
-  def self.pack_edges_into_rounds(edges:, teams:, rounds:, cap:)
+  def self.pack_edges_into_rounds(edges:, teams:, rounds:, cap:, seed_base: 2000)
     r_total = rounds
     raise ScheduleError, "rounds must be >= 1" if r_total < 1
 
@@ -532,7 +655,7 @@ class DodgeballScheduler
     end
 
     12.times do |attempt|
-      srand(2000 + attempt)
+      srand(seed_base + attempt)
       begin
         return roundEdges if rec.call
       rescue ScheduleError
@@ -772,6 +895,24 @@ class DodgeballScheduler
     cis
   end
 
+  # For a given round, returns slot indices that correspond to at least one active court.
+  # Slots without pairCourts are treated as generic and always eligible.
+  def self.eligible_ref_slot_indices_for_round(round_games:, ref_slot_labels:)
+    active_courts_1based = []
+    round_games.each_with_index do |g, ci|
+      active_courts_1based << (ci + 1) if g
+    end
+
+    ref_slot_labels.each_with_object([]) do |slot, out|
+      pcs = slot["pairCourts"]
+      if pcs.nil? || pcs.empty?
+        out << slot["slotIndex"]
+      elsif pcs.any? { |c| active_courts_1based.include?(c) }
+        out << slot["slotIndex"]
+      end
+    end
+  end
+
   # Assign ref teams to slots: prefer slot covering a court they play on next round, else a court they played on last round.
   def self.permute_refs_to_slots(chosen:, ri:, rounds:, ref_slot_labels:, ref_slots_this_round:)
     return chosen if chosen.empty?
@@ -816,7 +957,7 @@ class DodgeballScheduler
 
   # Greedily reorder rounds so no team plays all of its games consecutively.
   # This is a heuristic; if it can't find a fully valid ordering, it returns the original order with a warning.
-  def self.reorder_rounds_for_consecutive_play(rounds:, teams:, games_per_team:, attempts:)
+  def self.reorder_rounds_for_consecutive_play(rounds:, teams:, games_per_team:, attempts:, seed_base: 9000)
     rounds_total = rounds.length
     return [rounds, nil] if games_per_team <= 1
 
@@ -834,19 +975,25 @@ class DodgeballScheduler
       playing_count[ri] = playing[ri].count(true)
     end
 
+    best_valid_order = nil
+    best_valid_score = nil
     best_failures = nil
     best_order = nil
 
-    attempts.times do
+    attempts.times do |attempt|
+      srand(seed_base + attempt)
       remaining = (0...rounds_total).to_a.shuffle
       streak = Array.new(teams, 0)
       max_streak = Array.new(teams, 0)
+      break_streak = Array.new(teams, 0)
+      max_break_streak = Array.new(teams, 0)
+      adjacent_break_pairs_total = 0
       order = []
       valid = true
 
       while !remaining.empty?
         best_choice = nil
-        best_score = nil
+        best_tuple = nil
 
         # Prefer a choice that does not immediately complete a full consecutive block for any team.
         remaining.each do |ri|
@@ -868,9 +1015,21 @@ class DodgeballScheduler
           off_count = teams - playing_count[ri]
           score -= off_count * 0.01
 
-          if best_choice.nil? || score < best_score
+          # New priority: even break distribution and avoid consecutive breaks when possible.
+          # Lower is better.
+          new_adjacent_breaks = 0
+          break_load_penalty = 0
+          teams.times do |t|
+            next if playing[ri][t]
+            new_adjacent_breaks += 1 if break_streak[t] > 0
+            nb = break_streak[t] + 1
+            break_load_penalty += (nb * nb)
+          end
+
+          tuple = [new_adjacent_breaks, break_load_penalty, score]
+          if best_choice.nil? || (tuple <=> best_tuple) < 0
             best_choice = ri
-            best_score = score
+            best_tuple = tuple
           end
         end
 
@@ -884,9 +1043,18 @@ class DodgeballScheduler
             end
             off_count = teams - playing_count[ri]
             score -= off_count * 0.01
-            if best_choice.nil? || score < best_score
+            new_adjacent_breaks = 0
+            break_load_penalty = 0
+            teams.times do |t|
+              next if playing[ri][t]
+              new_adjacent_breaks += 1 if break_streak[t] > 0
+              nb = break_streak[t] + 1
+              break_load_penalty += (nb * nb)
+            end
+            tuple = [new_adjacent_breaks, break_load_penalty, score]
+            if best_choice.nil? || (tuple <=> best_tuple) < 0
               best_choice = ri
-              best_score = score
+              best_tuple = tuple
             end
           end
         end
@@ -899,8 +1067,12 @@ class DodgeballScheduler
           if playing[best_choice][t]
             streak[t] += 1
             max_streak[t] = [max_streak[t], streak[t]].max
+            break_streak[t] = 0
           else
             streak[t] = 0
+            adjacent_break_pairs_total += 1 if break_streak[t] > 0
+            break_streak[t] += 1
+            max_break_streak[t] = [max_break_streak[t], break_streak[t]].max
           end
         end
 
@@ -911,8 +1083,29 @@ class DodgeballScheduler
       end
 
       if valid && max_streak.all? { |s| s < games_per_team }
-        reordered = order.map { |ri| rounds[ri] }
-        return [reordered, nil]
+        # Secondary objective per priorities: maximize first-two-round participation coverage,
+        # but only after break-quality objectives.
+        first_two_coverage = 0
+        cover = Array.new(teams, false)
+        order.first(2).each do |ori|
+          teams.times do |t|
+            cover[t] = true if playing[ori][t]
+          end
+        end
+        first_two_coverage = cover.count(true)
+
+        # Primary: avoid long consecutive breaks, then minimize adjacent break pairs.
+        score = [
+          max_break_streak.max || 0,
+          adjacent_break_pairs_total,
+          -first_two_coverage,
+          max_streak.sum
+        ]
+        if best_valid_order.nil? || (score <=> best_valid_score) < 0
+          best_valid_order = order.dup
+          best_valid_score = score
+        end
+        next
       end
 
       failure_count = max_streak.count { |s| s >= games_per_team }
@@ -922,12 +1115,435 @@ class DodgeballScheduler
       end
     end
 
+    if best_valid_order
+      reordered = best_valid_order.map { |ri| rounds[ri] }
+      return [reordered, nil]
+    end
+
     if best_order
       reordered = best_order.map { |ri| rounds[ri] }
       return [reordered, "Could not completely avoid consecutive games for every team; using best available ordering."]
     end
 
     [rounds, "Could not compute a better round ordering."]
+  end
+
+  # Court column A = Home, B = Away. Each game can be oriented as [home, away] or swapped.
+  # Minimizes imbalance of home-game counts across teams (lexicographic: range, then variance).
+  def self.optimize_home_away_orientation(rounds:, teams:, seed:)
+    games = []
+    rounds.each_with_index do |r, ri|
+      r.each_with_index do |g, ci|
+        next unless g
+        a, b = g
+        low, high = [a, b].minmax
+        games << [ri, ci, low, high]
+      end
+    end
+
+    m = games.length
+    return Array.new(teams, 0) if m.zero?
+
+    score_tuple = lambda do |sw|
+      hc = Array.new(teams, 0)
+      sw.each_with_index do |s, i|
+        _, _, low, high = games[i]
+        hc[s ? high : low] += 1
+      end
+      range = hc.max - hc.min
+      mean = hc.sum.to_f / teams
+      var = hc.map { |x| (x - mean) ** 2 }.sum / teams
+      [range, var]
+    end
+
+    greedy_swapped = lambda do |rng|
+      hc = Array.new(teams, 0)
+      sw = Array.new(m)
+      order = (0...m).to_a.shuffle(random: rng)
+      order.each do |gi|
+        _, _, low, high = games[gi]
+        if hc[low] < hc[high]
+          sw[gi] = false
+          hc[low] += 1
+        elsif hc[high] < hc[low]
+          sw[gi] = true
+          hc[high] += 1
+        else
+          sw[gi] = rng.rand < 0.5
+          hc[sw[gi] ? high : low] += 1
+        end
+      end
+      sw
+    end
+
+    refine = lambda do |swapped_in, rng, steps|
+      swapped = swapped_in.dup
+      cur = score_tuple.call(swapped)
+      steps.times do
+        i = rng.rand(m)
+        swapped[i] = !swapped[i]
+        new_s = score_tuple.call(swapped)
+        if (new_s <=> cur) <= 0
+          cur = new_s
+        else
+          swapped[i] = !swapped[i]
+        end
+      end
+      swapped
+    end
+
+    best_swapped = nil
+    best_score = nil
+
+    48.times do |att|
+      rng = Random.new(seed + att * 97_621)
+      base = if att == 0
+        greedy_swapped.call(rng)
+      else
+        Array.new(m) { rng.rand < 0.5 }
+      end
+      cand = refine.call(base, rng, 20_000)
+      sc = score_tuple.call(cand)
+      if best_score.nil? || (sc <=> best_score) < 0
+        best_score = sc
+        best_swapped = cand
+      end
+    end
+
+    best_swapped ||= Array.new(m, false)
+
+    games.each_with_index do |(ri, ci, low, high), i|
+      rounds[ri][ci] = best_swapped[i] ? [high, low] : [low, high]
+    end
+
+    hc = Array.new(teams, 0)
+    best_swapped.each_with_index do |s, i|
+      _, _, low, high = games[i]
+      hc[s ? high : low] += 1
+    end
+    hc
+  end
+
+  # segment_sizes: e.g. [6,4,4] — court indices 0..5 segment 0, 6..9 segment 1, etc.
+  def self.parse_court_segment_sizes(params, courts:)
+    raw = params["courtSegmentSizes"]
+    raise ScheduleError, "courtSegmentSizes is required when segment courts is enabled." if raw.nil?
+
+    arr =
+      if raw.is_a?(Array)
+        raw.map { |x| Integer(x) }
+      else
+        JSON.parse(raw.to_s).map { |x| Integer(x) }
+      end
+    raise ScheduleError, "courtSegmentSizes must list at least two segments." if arr.length < 2
+    raise ScheduleError, "Each segment must include at least two courts." if arr.any? { |x| x < 2 }
+    raise ScheduleError, "courtSegmentSizes must sum to the number of courts (#{courts}); got #{arr.sum}." if arr.sum != courts
+
+    arr
+  end
+
+  def self.segment_index_of_each_court(courts, segment_sizes)
+    out = Array.new(courts)
+    acc = 0
+    segment_sizes.each_with_index do |sz, si|
+      sz.times do |j|
+        ci = acc + j
+        out[ci] = si
+      end
+      acc += sz
+    end
+    raise ScheduleError, "Internal error: segment layout does not match court count." if acc != courts
+
+    out
+  end
+
+  # Reassign which court index each matchup uses so that when a team plays in two consecutive rounds,
+  # both games are on courts in the same segment (whenever solvable).
+  def self.assign_courts_for_segments!(rounds:, teams:, courts:, segment_sizes:, seed:)
+    seg_of_court = segment_index_of_each_court(courts, segment_sizes)
+    rng = Random.new(seed)
+    last_play_round = Array.new(teams, nil)
+    last_seg = Array.new(teams, nil)
+
+    rounds.each_with_index do |r, ri|
+      games = []
+      r.each_with_index do |g, _ci|
+        next unless g
+
+        games << [g[0], g[1]]
+      end
+      k = games.length
+      if k.zero?
+        rounds[ri] = Array.new(courts)
+        next
+      end
+
+      need_seg = Array.new(teams, nil)
+      teams.times do |t|
+        need_seg[t] = last_seg[t] if last_play_round[t] == ri - 1
+      end
+
+      placement = nil
+      80.times do |att|
+        local = Random.new(seed + ri * 10_003 + att)
+        order = (0...k).to_a.shuffle(random: local)
+        order.sort_by! do |gi|
+          a, b = games[gi]
+          sa, sb = need_seg[a], need_seg[b]
+          next 0 if sa && sb && sa != sb
+
+          req = sa || sb
+          (0...courts).count do |c|
+            sg = seg_of_court[c]
+            req ? (sg == req) : true
+          end
+        end
+        placement = try_dfs_place_segment_games(games, order, courts, need_seg, seg_of_court)
+        break if placement
+      end
+
+      unless placement
+        placement, = greedy_place_segment_games(games, courts, need_seg, seg_of_court, rng)
+      end
+
+      new_r = Array.new(courts)
+      games.each_with_index do |pair, gi|
+        new_r[placement[gi]] = pair
+      end
+      rounds[ri] = new_r
+
+      games.each_with_index do |pair, gi|
+        ci = placement[gi]
+        a, b = pair
+        [a, b].each do |t|
+          last_play_round[t] = ri
+          last_seg[t] = seg_of_court[ci]
+        end
+      end
+    end
+
+    count_segment_cross_segment_consecutive(rounds: rounds, teams: teams, seg_of_court: seg_of_court)
+  end
+
+  def self.try_dfs_place_segment_games(games, games_order, courts, need_seg, seg_of_court)
+    k = games.length
+    placement = {}
+    used = Array.new(courts, false)
+
+    rec = lambda do |idx|
+      return true if idx >= games_order.length
+
+      gi = games_order[idx]
+      a, b = games[gi]
+      sa, sb = need_seg[a], need_seg[b]
+      return false if sa && sb && sa != sb
+
+      req = sa || sb
+      (0...courts).each do |c|
+        next if used[c]
+
+        sg = seg_of_court[c]
+        next if req && sg != req
+
+        used[c] = true
+        placement[gi] = c
+        ok = rec.call(idx + 1)
+        return true if ok
+
+        used[c] = false
+        placement.delete(gi)
+      end
+      false
+    end
+
+    rec.call(0) ? placement : nil
+  end
+
+  def self.greedy_place_segment_games(games, courts, need_seg, seg_of_court, rng)
+    k = games.length
+    placement = {}
+    used = Array.new(courts, false)
+    unplaced = (0...k).to_a
+
+    k.times do
+      gi = unplaced.min_by do |gj|
+        a, b = games[gj]
+        sa, sb = need_seg[a], need_seg[b]
+        (0...courts).count do |c|
+          next false if used[c]
+
+          sg = seg_of_court[c]
+          (!sa || sa == sg) && (!sb || sb == sg)
+        end
+      end
+      unplaced.delete(gi)
+
+      a, b = games[gi]
+      sa, sb = need_seg[a], need_seg[b]
+      best_c = nil
+      best_pen = 1_000_000
+      (0...courts).each do |c|
+        next if used[c]
+
+        sg = seg_of_court[c]
+        pen = 0
+        pen += 1 if sa && sg != sa
+        pen += 1 if sb && sg != sb
+        if pen < best_pen || (pen == best_pen && rng.rand < 0.5)
+          best_pen = pen
+          best_c = c
+        end
+      end
+      raise ScheduleError, "Internal error: could not place a game on courts." if best_c.nil?
+
+      placement[gi] = best_c
+      used[best_c] = true
+    end
+
+    [placement, 0]
+  end
+
+  def self.count_segment_cross_segment_consecutive(rounds:, teams:, seg_of_court:)
+    last_r = Array.new(teams, nil)
+    last_seg = Array.new(teams, nil)
+    violations = 0
+
+    rounds.each_with_index do |r, ri|
+      r.each_with_index do |g, ci|
+        next unless g
+
+        a, b = g
+        [a, b].each do |t|
+          if last_r[t] == ri - 1 && last_seg[t] != seg_of_court[ci]
+            violations += 1
+          end
+          last_r[t] = ri
+          last_seg[t] = seg_of_court[ci]
+        end
+      end
+    end
+
+    violations
+  end
+
+  def self.segment_for_ref_entry(ref_entry, seg_of_court)
+    pcs = ref_entry["pairCourts"] || []
+    return nil if pcs.empty?
+
+    segs = pcs.map { |c1| seg_of_court[c1 - 1] }.compact.uniq
+    return nil if segs.length != 1
+
+    segs.first
+  end
+
+  # Enforces segment transition policy across PLAY/REF events:
+  # - No immediate PLAY->PLAY segment switch.
+  # - After switching segments once, cannot switch again until a bye round intervenes.
+  def self.count_segment_transition_violations(rounds_detail:, teams:, segment_sizes:)
+    seg_of_court = segment_index_of_each_court(segment_sizes.sum, segment_sizes)
+    rounds_total = rounds_detail.length
+    play_seg = Array.new(rounds_total) { Array.new(teams, nil) }
+    ref_seg = Array.new(rounds_total) { Array.new(teams, nil) }
+
+    rounds_detail.each_with_index do |rd, ri|
+      (rd["games"] || []).each_with_index do |g, ci|
+        next unless g
+
+        a, b = g
+        sg = seg_of_court[ci]
+        play_seg[ri][a] = sg
+        play_seg[ri][b] = sg
+      end
+
+      (rd["refs"] || []).each do |r|
+        t = r["team"]
+        sg = segment_for_ref_entry(r, seg_of_court)
+        ref_seg[ri][t] = sg unless sg.nil?
+      end
+    end
+
+    play_play_switch = 0
+    ping_pong_without_bye = 0
+
+    teams.times do |t|
+      last_round_active = nil
+      last_seg = nil
+      last_kind = nil
+      switched_since_bye = false
+
+      rounds_total.times do |ri|
+        kind = nil
+        seg = nil
+        if !play_seg[ri][t].nil?
+          kind = :play
+          seg = play_seg[ri][t]
+        elsif !ref_seg[ri][t].nil?
+          kind = :ref
+          seg = ref_seg[ri][t]
+        end
+
+        if kind.nil?
+          switched_since_bye = false
+          next
+        end
+
+        if !last_round_active.nil? && last_round_active == ri - 1 && !last_seg.nil? && !seg.nil? && last_seg != seg
+          play_play_switch += 1 if last_kind == :play && kind == :play
+          ping_pong_without_bye += 1 if switched_since_bye
+          switched_since_bye = true
+        end
+
+        last_round_active = ri
+        last_seg = seg
+        last_kind = kind
+      end
+    end
+
+    {
+      play_play_switch: play_play_switch,
+      ping_pong_without_bye: ping_pong_without_bye
+    }
+  end
+
+  def self.make_universal_break_round(teams:, courts:)
+    {
+      "games" => Array.new(courts),
+      "refs" => [],
+      "byes" => (0...teams).to_a
+    }
+  end
+
+  def self.preferred_universal_break_index(rounds_count)
+    # Place break after halfway point and before three-quarter point when possible.
+    low = (rounds_count / 2) + 1
+    high = ((rounds_count * 3) / 4.0).ceil - 1
+    return [[low, rounds_count].min, rounds_count].min if high < low
+
+    idx = low
+    idx = high if idx > high
+    idx = 1 if idx < 1
+    idx = rounds_count if idx > rounds_count
+    idx
+  end
+
+  # Inserts at most one full-break round when segment transitions violate constraints.
+  # Returns 1 if inserted, otherwise 0.
+  def self.insert_break_rounds_for_segment_conflicts!(rounds_detail:, teams:, courts:, segment_sizes:)
+    v = count_segment_transition_violations(
+      rounds_detail: rounds_detail,
+      teams: teams,
+      segment_sizes: segment_sizes
+    )
+    return 0 unless v[:play_play_switch] > 0 || v[:ping_pong_without_bye] > 0
+
+    idx = preferred_universal_break_index(rounds_detail.length)
+    rounds_detail.insert(idx, make_universal_break_round(teams: teams, courts: courts))
+    1
+  end
+
+  def self.insert_halfway_intermission_round!(rounds_detail:, teams:, courts:)
+    idx = preferred_universal_break_index(rounds_detail.length)
+    rounds_detail.insert(idx, make_universal_break_round(teams: teams, courts: courts))
   end
 
   def self.compute_max_consecutive_games(rounds:, teams:)

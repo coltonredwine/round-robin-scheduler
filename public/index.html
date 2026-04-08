@@ -9,6 +9,7 @@
   <body>
     <div class="container">
       <h1 class="settingsTitle">Round Robin Schedule Generator</h1>
+      <div class="versionTag">version 1.0.1</div>
       <div class="card settingsCard">
         <h2>Settings</h2>
         <form id="settingsForm">
@@ -18,15 +19,42 @@
               <input type="number" name="teams" min="2" step="1" value="" />
             </label>
             <label class="stackedInput">
-              Number of courts
-              <input type="number" name="courts" min="1" step="1" value="" />
+              Matches per team
+              <input type="number" name="gamesPerTeam" min="1" step="1" value="" />
             </label>
           </div>
 
           <label class="stackedInput fullWidthInput">
-            Matches per team
-            <input type="number" name="gamesPerTeam" min="1" step="1" value="" />
+            Number of courts
+            <input type="number" name="courts" min="1" step="1" value="" />
           </label>
+
+          <label class="toggleRow">
+            <span>Segment courts</span>
+            <input type="checkbox" name="segmentCourts" class="toggleInput" />
+            <span class="toggleTrack" aria-hidden="true"><span class="toggleThumb"></span></span>
+          </label>
+
+          <div id="segmentCourtsBlock" class="segmentCourtsBlock" hidden>
+            <label class="stackedInput fullWidthInput">
+              Number of segments
+              <input
+                type="number"
+                id="segmentCount"
+                name="segmentCount"
+                min="2"
+                step="1"
+                value="2"
+              />
+            </label>
+            <p id="segmentCourtsHint" class="muted segmentCourtsHint">
+              Courts are grouped left-to-right (e.g. segment 1 = lowest court numbers). Sizes must add up to the
+              number of courts above; the last segment fills the remainder.
+            </p>
+            <div id="segmentSizesFields" class="segmentSizesFields"></div>
+            <div id="segmentLastRow" class="segmentLastRow muted"></div>
+            <input type="hidden" name="courtSegmentSizes" id="courtSegmentSizes" value="[]" />
+          </div>
 
           <label class="toggleRow">
             <span>Peer reffing</span>
@@ -47,6 +75,24 @@
           <input type="hidden" name="refLabelMode" value="paired" />
 
           <label class="toggleRow">
+            <span>Ensure each team has at least one Bye</span>
+            <input type="checkbox" name="ensureEachTeamHasBye" class="toggleInput" />
+            <span class="toggleTrack" aria-hidden="true"><span class="toggleThumb"></span></span>
+          </label>
+
+          <label class="toggleRow">
+            <span>Include Halfway Intermission</span>
+            <input type="checkbox" name="includeHalfwayIntermission" class="toggleInput" />
+            <span class="toggleTrack" aria-hidden="true"><span class="toggleThumb"></span></span>
+          </label>
+
+          <label class="toggleRow">
+            <span>Evenly distribute Home/Away games</span>
+            <input type="checkbox" name="distributeHomeAway" class="toggleInput" />
+            <span class="toggleTrack" aria-hidden="true"><span class="toggleThumb"></span></span>
+          </label>
+
+          <label class="toggleRow">
             <span>Include round times</span>
             <input type="checkbox" name="includeRoundTime" id="includeRoundTime" class="toggleInput" />
             <span class="toggleTrack" aria-hidden="true"><span class="toggleThumb"></span></span>
@@ -63,32 +109,30 @@
             </label>
           </div>
 
-          <label class="toggleRow">
-            <span>Ensure each team has at least one Bye</span>
-            <input type="checkbox" name="ensureEachTeamHasBye" class="toggleInput" />
-            <span class="toggleTrack" aria-hidden="true"><span class="toggleThumb"></span></span>
-          </label>
-
-          <div class="actionsRow">
-            <button type="submit" id="generateBtn">Generate</button>
-            <button id="resetBtn" type="button">Clear</button>
-            <button id="downloadBtnTop" type="button" disabled>Download CSV</button>
+          <div class="generateBlock">
+            <button type="button" id="generateBtn" class="generatePrimary">Generate</button>
+            <div id="generateLoading" class="generateLoading" hidden role="status" aria-live="polite">
+              <span class="spinner" aria-hidden="true"></span>
+              <span class="generateLoadingText">Generating schedule…</span>
+            </div>
+            <div class="secondaryActionsRow">
+              <button id="reworkBtn" type="button" disabled>Rework</button>
+              <button id="resetBtn" type="button" disabled>Clear</button>
+              <button id="downloadBtnTop" type="button" disabled>Download CSV</button>
+            </div>
           </div>
         </form>
         <div id="error" class="error" aria-live="polite"></div>
       </div>
 
       <div class="card reportCard hiddenCard" id="reportCard">
-        <h2>Report</h2>
+        <h2>Overview</h2>
         <div id="summary"></div>
       </div>
 
       <div class="card hiddenCard" id="scheduleCard">
         <h2>Schedule</h2>
         <div id="rounds"></div>
-        <div class="actions">
-          <button id="downloadBtn" type="button" disabled>Download CSV</button>
-        </div>
       </div>
     </div>
 

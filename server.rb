@@ -97,6 +97,15 @@ def build_csv(schedule)
 
       out << row
     end
+
+    ensure_bye_used = schedule["ensureEachTeamHasBye"] ? "Yes" : "No"
+    settings_summary =
+      "Teams=#{teams}, MatchesPerTeam=#{schedule["gamesPerTeam"]}, EnsureEachTeamHasBye=#{ensure_bye_used}"
+
+    footer_row = Array.new(headers.length)
+    footer_row[0] = settings_summary
+    footer_row[1] = "Seed=#{schedule["seed"]}"
+    out << footer_row
   end
 
   csv

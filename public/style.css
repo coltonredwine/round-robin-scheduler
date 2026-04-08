@@ -1,5 +1,7 @@
+@import url("https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700&display=swap");
+
 body {
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+  font-family: "Montserrat", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
   color: #111;
   background: #f7f7f8;
 }
@@ -43,9 +45,58 @@ body {
   display: none;
 }
 
+.card.refreshingPreview #summary,
+.card.refreshingPreview #rounds {
+  position: relative;
+}
+
+.card.refreshingPreview #summary::after,
+.card.refreshingPreview #rounds::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 8px;
+  pointer-events: none;
+  background: linear-gradient(
+    110deg,
+    rgba(107, 114, 128, 0.2) 0%,
+    rgba(107, 114, 128, 0.5) 50%,
+    rgba(107, 114, 128, 0.2) 100%
+  );
+  background-size: 220% 100%;
+  animation: refreshSweep 1.1s linear infinite;
+}
+
+.previewEnter #summary tbody tr,
+.previewEnter #rounds tbody tr {
+  opacity: 0;
+  transform: translateY(-8px);
+  color: rgba(107, 114, 128, 0.28);
+  animation: previewRowIn 260ms ease forwards;
+}
+
+@keyframes refreshSweep {
+  from { background-position: 220% 0; }
+  to { background-position: -20% 0; }
+}
+
+@keyframes previewRowIn {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+    color: rgba(107, 114, 128, 0.28);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+    color: inherit;
+  }
+}
+
 .settingsTitle {
   margin: 0 0 8px 0;
   text-align: center;
+  text-transform: uppercase;
 }
 
 form label {
@@ -64,6 +115,24 @@ form label {
 .card h2 {
   font-size: 18px;
   margin: 0 0 6px 0;
+  text-transform: uppercase;
+}
+
+.versionTag {
+  text-transform: lowercase;
+  font-size: 0.75em;
+  font-weight: 300;
+  letter-spacing: 0.01em;
+  text-align: center;
+  margin: -2px 0 10px 0;
+  color: #666;
+}
+
+.seedLine {
+  font-size: 0.75em;
+  font-weight: 300;
+  text-align: center;
+  margin: 6px 0 0 0;
 }
 
 .stackedInput {
@@ -96,6 +165,39 @@ select {
   width: 100%;
   flex: 1 1 100%;
   align-items: stretch;
+}
+
+.segmentCourtsBlock {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+  background: #eceff4;
+  border: 1px solid #d4dbe5;
+  border-radius: 12px;
+}
+
+.segmentCourtsHint {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.35;
+}
+
+.segmentSizesFields {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+}
+
+.segmentSizeRow {
+  margin: 0;
+}
+
+.segmentLastRow {
+  font-size: 14px;
+  margin: 2px 0 0 0;
 }
 
 .fullWidthInput input[type="number"] {
@@ -220,6 +322,49 @@ th {
   text-align: center;
 }
 
+.teamPickLabel {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.teamPick {
+  width: 16px;
+  height: 16px;
+}
+
+.teamHighlighted {
+  background: rgba(250, 204, 21, 0.35) !important;
+  box-shadow: inset 0 0 0 1px rgba(250, 204, 21, 0.55);
+}
+
+.byeTeamTag {
+  padding: 1px 4px;
+  border-radius: 6px;
+}
+
+.byeTeamTag.teamHighlighted {
+  background: rgba(250, 204, 21, 0.35);
+}
+
+.reportTable tbody td:first-child {
+  font-weight: 700;
+}
+
+.scheduleTable thead th {
+  font-weight: 700;
+}
+
+.scheduleTable tbody td {
+  font-weight: 400;
+}
+
+.scheduleTable tbody td:first-child {
+  font-weight: 700;
+}
+
 .courtLine {
   font-size: 14px;
   margin: 2px 0;
@@ -238,6 +383,66 @@ th {
   gap: 10px;
   align-items: center;
   justify-content: center;
+}
+
+.generateBlock {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+}
+
+.generateLoading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  min-height: 36px;
+  font-size: 15px;
+  font-weight: 500;
+  color: #3b82c4;
+}
+
+.generateLoading[hidden] {
+  display: none !important;
+}
+
+.generateLoading .spinner {
+  width: 22px;
+  height: 22px;
+  border: 3px solid #c8d8ea;
+  border-top-color: #3b82c4;
+  border-radius: 50%;
+  animation: rr-spin 0.75s linear infinite;
+  flex-shrink: 0;
+}
+
+@keyframes rr-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.generatePrimary {
+  margin-top: 0;
+  font-size: 18px;
+  padding: 12px 22px;
+  font-weight: 600;
+  width: min(420px, 100%);
+}
+
+.secondaryActionsRow {
+  width: 100%;
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.secondaryActionsRow button {
+  margin-top: 0;
 }
 
 .toggleRow {
